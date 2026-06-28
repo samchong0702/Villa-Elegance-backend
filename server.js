@@ -17,7 +17,9 @@ const PORT = process.env.PORT || 5000;
 let transporter;
 if (process.env.SMTP_USER && process.env.SMTP_PASS) {
   transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // Use explicit TLS
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
