@@ -4,46 +4,11 @@ import dotenv from 'dotenv';
 import { google } from 'googleapis';
 import multer from 'multer';
 import { Readable } from 'stream';
-import nodemailer from 'nodemailer';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// ==========================================
-// Nodemailer Configuration
-// ==========================================
-let transporter;
-if (process.env.SMTP_USER && process.env.SMTP_PASS) {
-  transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // Use explicit TLS
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-  console.log('Gmail transport created for notifications.');
-} else {
-  nodemailer.createTestAccount((err, account) => {
-    if (err) {
-      console.error('Failed to create a testing account. ' + err.message);
-      return;
-    }
-    transporter = nodemailer.createTransport({
-      host: account.smtp.host,
-      port: account.smtp.port,
-      secure: account.smtp.secure,
-      auth: {
-        user: account.user,
-        pass: account.pass,
-      },
-    });
-    console.log('Ethereal email test account created for notifications.');
-  });
-}
 
 // Middleware
 app.use(cors());
@@ -68,6 +33,7 @@ oauth2Client.setCredentials({
 });
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
+const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
 // ==========================================
 // API Routes
@@ -240,23 +206,40 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
       fields: 'id, name, webViewLink'
     });
 
-    // Send email notification
-    if (transporter) {
-      const mailOptions = {
-        from: `"Villa Elegance App" <${process.env.SMTP_USER || 'app@villaelegance.com'}>`,
-        to: process.env.ADMIN_EMAIL || 'samchong0702@gmail.com',
-        subject: `New File Uploaded: ${fileName}`,
-        text: `New file "${fileName}" uploaded to folder "${folderId}" with description: ${description || 'No description provided.'}\nView file here: ${response.data.webViewLink}`,
-      };
+    // Send email notification via Gmail API
+    try {
+      const from = process.env.GOOGLE_CLIENT_EMAIL || 'app@villaelegance.com';
+      const to = process.env.ADMIN_EMAIL || 'samchong0702@gmail.com';
+      const subject = `New File Uploaded: ${fileName}`;
+      const messageText = `New file "${fileName}" uploaded to folder "${folderId}" with description: ${description || 'No description provided.'}\nView file here: ${response.data.webViewLink}`;
 
-      transporter.sendMail(mailOptions, (err, info) => {
-        if (err) {
-          console.error('Error sending email:', err);
-        } else {
-          console.log('Notification email sent!');
-          console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
+      const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+      const messageParts = [
+        `From: "Villa Elegance App" <${from}>`,
+        `To: ${to}`,
+        `Subject: ${utf8Subject}`,
+        'Content-Type: text/plain; charset=utf-8',
+        'MIME-Version: 1.0',
+        '',
+        messageText
+      ];
+      
+      const emailMessage = messageParts.join('\r\n');
+      const encodedEmail = Buffer.from(emailMessage)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: encodedEmail
         }
       });
+      console.log('Notification email sent via Gmail API!');
+    } catch (emailError) {
+      console.error('Error sending email notification via Gmail API:', emailError);
     }
 
     res.json({
