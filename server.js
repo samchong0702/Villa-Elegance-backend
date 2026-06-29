@@ -208,10 +208,24 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
     // Send email notification via Gmail API
     try {
+      // Fetch folder name to use in the email instead of ID
+      let actualFolderName = folderId;
+      try {
+        const folderResponse = await drive.files.get({
+          fileId: folderId,
+          fields: 'name'
+        });
+        if (folderResponse.data && folderResponse.data.name) {
+          actualFolderName = folderResponse.data.name;
+        }
+      } catch (folderErr) {
+        console.warn('Could not fetch folder name for email notification:', folderErr.message);
+      }
+
       const from = process.env.GOOGLE_CLIENT_EMAIL || 'app@villaelegance.com';
       const to = process.env.ADMIN_EMAIL || 'samchong0702@gmail.com';
       const subject = `New File Uploaded: ${fileName}`;
-      const messageText = `New file "${fileName}" uploaded to folder "${folderId}" with description: ${description || 'No description provided.'}\nView file here: ${response.data.webViewLink}`;
+      const messageText = `New file "${fileName}" uploaded to folder "${actualFolderName}" with description: ${description || 'No description provided.'}\nView file here: ${response.data.webViewLink}`;
 
       const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
       const messageParts = [
